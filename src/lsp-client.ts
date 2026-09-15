@@ -221,7 +221,10 @@ export class LspClient {
           },
         },
       },
-      workspaceFolders: null,
+      // Note: `workspaceFolders: null` is spec-legal but lspmux's own
+      // InitializeParams deserialization rejects it ("invalid type: null,
+      // expected a sequence"); omitting the field is equivalent for LSP
+      // servers and keeps multiplexers happy.
       ...(this.config.initializationOptions && {
         initializationOptions: this.config.initializationOptions,
       }),
