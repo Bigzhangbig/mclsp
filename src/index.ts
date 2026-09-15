@@ -83,8 +83,11 @@ async function main(): Promise<void> {
   await mcpServer.connect(transport);
   log("MCP server connected via stdio");
 
-  // Graceful shutdown
+  // Graceful shutdown (idempotent: may fire via signal, transport close, or stdin EOF)
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log("Shutting down...");
     if (manager) await manager.shutdownAll();
     await mcpServer.close();
@@ -93,6 +96,21 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  // MCP stdio transport: a closed/EOF'd stdin is the primary portable shutdown
+  // signal (spec: "Servers SHOULD exit promptly when their standard input is
+  // closed or reads return end-of-file"). The TS SDK (<=1.30.0) does not
+  // surface stdin EOF via transport.onclose, so listen on the stream directly.
+  // Without this, the LSP child processes spawned by LspManager leak as
+  // orphans (reparented to launchd) whenever the host dies without SIGTERM.
+  transport.onclose = () => {
+    void shutdown();
+  };
+  process.stdin.on("end", () => {
+    void shutdown();
+  });
+  process.stdin.on("close", () => {
+    void shutdown();
+  });
 }
 
 main().catch((err) => {
